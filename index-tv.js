@@ -1,6 +1,14 @@
-const { addonBuilder, serveHTTP } = require('stremio-addon-sdk');
+const express = require('express');
+
+const {
+  addonBuilder,
+  getRouter
+} = require('stremio-addon-sdk');
 
 const SERIES_IMDB_ID = 'tt0928368';
+
+const PUBLIC_BASE_URL =
+  'https://pijamot-stremio-tv.onrender.com';
 
 const PLAYLISTS = {
   1: 'x8kmxm',
@@ -16,21 +24,39 @@ const PLAYLISTS = {
 
 const manifest = {
   id: 'il.yael.pijamot.dailymotion.tv',
-  version: '1.2.0',
+  version: '2.0.0',
   name: "הפיג'מות – Dailymotion TV",
-  description: "ניגון ישיר של פרקי הפיג'מות ב-Stremio.",
+  description: "ניגון פרקי הפיג'מות דרך Render proxy.",
   resources: ['stream'],
   types: ['series'],
   catalogs: [],
   idPrefixes: [SERIES_IMDB_ID]
 };
 
-const builder = new addonBuilder(manifest);
+const builder =
+  new addonBuilder(manifest);
 
-let episodeMap = new Map();
+let episodeMap =
+  new Map();
+
 let lastRefresh = 0;
 
-const CACHE_MS = 6 * 60 * 60 * 1000;
+const CACHE_MS =
+  6 * 60 * 60 * 1000;
+
+const DM_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+
+  'Referer':
+    'https://www.dailymotion.com/',
+
+  'Origin':
+    'https://www.dailymotion.com',
+
+  'Accept':
+    '*/*'
+};
 
 function normalizeText(text) {
   return String(text || '')
@@ -39,51 +65,65 @@ function normalizeText(text) {
 }
 
 function parseEpisodeTitle(title) {
-  const match = normalizeText(title).match(
-    /הפיג['׳’]?מות\s+עונה\s+(\d+)\s+פרק\s+(\d+)/u
-  );
+  const match =
+    normalizeText(title).match(
+      /הפיג['׳’]?מות\s+עונה\s+(\d+)\s+פרק\s+(\d+)/u
+    );
 
   if (!match) {
     return null;
   }
 
   return {
-    season: Number(match[1]),
-    episode: Number(match[2])
+    season:
+      Number(match[1]),
+
+    episode:
+      Number(match[2])
   };
 }
 
-async function fetchPlaylist(season, playlistId) {
+async function fetchPlaylist(
+  season,
+  playlistId
+) {
   const url =
     `https://api.dailymotion.com/playlist/${playlistId}/videos` +
     `?fields=id,title,url&limit=100`;
 
-  const response = await fetch(url);
+  const response =
+    await fetch(url);
 
   if (!response.ok) {
     throw new Error(
-      `Playlist API HTTP ${response.status}`
+      `Playlist HTTP ${response.status}`
     );
   }
 
-  const data = await response.json();
+  const data =
+    await response.json();
 
   const list =
     Array.isArray(data.list)
       ? data.list
       : [];
 
-  const found = [];
+  const result = [];
 
   for (const video of list) {
+
     const parsed =
-      parseEpisodeTitle(video.title);
+      parseEpisodeTitle(
+        video.title
+      );
 
     if (!parsed) {
       continue;
     }
 
-    if (parsed.season !== season) {
+    if (
+      parsed.season !== season
+    ) {
       continue;
     }
 
@@ -91,26 +131,31 @@ async function fetchPlaylist(season, playlistId) {
       continue;
     }
 
-    found.push({
-      season: parsed.season,
-      episode: parsed.episode,
-      title: normalizeText(video.title),
-      videoId: video.id,
-      pageUrl:
-        video.url ||
-        `https://www.dailymotion.com/video/${video.id}`
+    result.push({
+      season:
+        parsed.season,
+
+      episode:
+        parsed.episode,
+
+      title:
+        normalizeText(
+          video.title
+        ),
+
+      videoId:
+        video.id
     });
   }
 
-  console.log(
-    `Season ${season}: found ${found.length} episodes`
-  );
-
-  return found;
+  return result;
 }
 
-async function refreshEpisodeMap(force = false) {
-  const now = Date.now();
+async function refreshEpisodeMap(
+  force = false
+) {
+  const now =
+    Date.now();
 
   if (
     !force &&
@@ -122,7 +167,10 @@ async function refreshEpisodeMap(force = false) {
 
   const results =
     await Promise.allSettled(
-      Object.entries(PLAYLISTS).map(
+
+      Object.entries(
+        PLAYLISTS
+      ).map(
         ([season, playlistId]) =>
           fetchPlaylist(
             Number(season),
@@ -135,13 +183,13 @@ async function refreshEpisodeMap(force = false) {
     new Map();
 
   for (const result of results) {
+
     if (
       result.status !==
       'fulfilled'
     ) {
       console.error(
         'Playlist error:',
-        result.reason?.message ||
         result.reason
       );
 
@@ -159,7 +207,7 @@ async function refreshEpisodeMap(force = false) {
     }
   }
 
-  if (nextMap.size > 0) {
+  if (nextMap.size) {
     episodeMap =
       nextMap;
 
@@ -172,28 +220,18 @@ async function refreshEpisodeMap(force = false) {
   }
 }
 
-async function getDirectVideoUrl(videoId) {
+async function getDirectHlsUrl(
+  videoId
+) {
   const metadataUrl =
     `https://www.dailymotion.com/player/metadata/video/${videoId}`;
-
-  console.log(
-    `Fetching metadata for ${videoId}`
-  );
 
   const response =
     await fetch(
       metadataUrl,
       {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-
-          'Accept':
-            'application/json,text/plain,*/*',
-
-          'Referer':
-            'https://www.dailymotion.com/'
-        }
+        headers:
+          DM_HEADERS
       }
     );
 
@@ -209,85 +247,110 @@ async function getDirectVideoUrl(videoId) {
   const qualities =
     metadata.qualities || {};
 
-  const preferred = [
-    '1080',
-    '720',
-    '480',
-    '380',
-    '360',
-    '240'
-  ];
-
-  for (
-    const quality
-    of preferred
-  ) {
-    const sources =
-      qualities[quality];
-
-    if (
-      !Array.isArray(sources)
-    ) {
-      continue;
-    }
-
-    const mp4 =
-      sources.find(
-        source =>
-          source?.url &&
-          source.type === 'video/mp4'
-      );
-
-    if (mp4) {
-      console.log(
-        `Found MP4 quality ${quality}`
-      );
-
-      return mp4.url;
-    }
-  }
-
   for (
     const sources
-    of Object.values(qualities)
+    of Object.values(
+      qualities
+    )
   ) {
     if (
-      !Array.isArray(sources)
+      !Array.isArray(
+        sources
+      )
     ) {
       continue;
     }
 
-    const hls =
-      sources.find(
-        source =>
-          source?.url &&
-          (
-            source.type ===
-              'application/x-mpegURL' ||
-            source.url.includes('.m3u8')
-          )
-      );
-
-    if (hls) {
-      console.log(
-        'Found HLS stream'
-      );
-
-      return hls.url;
+    for (
+      const source
+      of sources
+    ) {
+      if (
+        source?.url &&
+        (
+          source.url.includes(
+            '.m3u8'
+          ) ||
+          source.type ===
+            'application/x-mpegURL'
+        )
+      ) {
+        return source.url;
+      }
     }
   }
 
   throw new Error(
-    'No direct stream found'
+    'No HLS source found'
   );
+}
+
+function proxyUrl(url) {
+  return (
+    `${PUBLIC_BASE_URL}/dm-proxy?url=` +
+    encodeURIComponent(url)
+  );
+}
+
+function rewritePlaylist(
+  text,
+  originalUrl
+) {
+  const lines =
+    text.split(/\r?\n/);
+
+  return lines.map(
+    line => {
+
+      const trimmed =
+        line.trim();
+
+      if (!trimmed) {
+        return line;
+      }
+
+      if (
+        trimmed.startsWith(
+          '#'
+        )
+      ) {
+
+        return line.replace(
+          /URI="([^"]+)"/g,
+          (
+            match,
+            uri
+          ) => {
+            const absolute =
+              new URL(
+                uri,
+                originalUrl
+              ).href;
+
+            return (
+              `URI="${proxyUrl(
+                absolute
+              )}"`
+            );
+          }
+        );
+      }
+
+      const absolute =
+        new URL(
+          trimmed,
+          originalUrl
+        ).href;
+
+      return proxyUrl(
+        absolute
+      );
+    }
+  ).join('\n');
 }
 
 builder.defineStreamHandler(
   async ({ type, id }) => {
-
-    console.log(
-      `Stream request: ${type} ${id}`
-    );
 
     if (
       type !== 'series'
@@ -308,14 +371,8 @@ builder.defineStreamHandler(
       };
     }
 
-    const season =
-      Number(match[1]);
-
-    const episode =
-      Number(match[2]);
-
     const key =
-      `${season}:${episode}`;
+      `${Number(match[1])}:${Number(match[2])}`;
 
     await refreshEpisodeMap(
       false
@@ -334,94 +391,275 @@ builder.defineStreamHandler(
     }
 
     if (!item) {
-      console.log(
-        `Episode not found: ${key}`
-      );
-
       return {
         streams: []
       };
     }
 
+    const streamUrl =
+      `${PUBLIC_BASE_URL}/play/${item.videoId}/master.m3u8`;
+
+    console.log(
+      `Returning proxy stream: ${streamUrl}`
+    );
+
+    return {
+      streams: [
+        {
+          name:
+            'Dailymotion Proxy',
+
+          title:
+            item.title,
+
+          url:
+            streamUrl,
+
+          behaviorHints: {
+            notWebReady:
+              true
+          }
+        }
+      ]
+    };
+  }
+);
+
+const app =
+  express();
+
+app.get(
+  '/play/:videoId/master.m3u8',
+  async (req, res) => {
+
     try {
       const directUrl =
-        await getDirectVideoUrl(
-          item.videoId
+        await getDirectHlsUrl(
+          req.params.videoId
         );
 
-      console.log(
-        `Direct stream found for ${key}`
+      const response =
+        await fetch(
+          directUrl,
+          {
+            headers:
+              DM_HEADERS
+          }
+        );
+
+      if (!response.ok) {
+        throw new Error(
+          `HLS HTTP ${response.status}`
+        );
+      }
+
+      const text =
+        await response.text();
+
+      const rewritten =
+        rewritePlaylist(
+          text,
+          directUrl
+        );
+
+      res.set(
+        'Content-Type',
+        'application/vnd.apple.mpegurl'
       );
 
-      return {
-        streams: [
-          {
-            name:
-              'Dailymotion Direct',
+      res.set(
+        'Access-Control-Allow-Origin',
+        '*'
+      );
 
-            title:
-              item.title,
-
-            url:
-              directUrl,
-
-            behaviorHints: {
-              notWebReady: true,
-
-              proxyHeaders: {
-                request: {
-                  'User-Agent':
-                    'Mozilla/5.0 (Linux; Android 12; TV) AppleWebKit/537.36 Chrome/120 Safari/537.36',
-
-                  'Referer':
-                    'https://www.dailymotion.com/',
-
-                  'Origin':
-                    'https://www.dailymotion.com'
-                }
-              }
-            }
-          }
-        ]
-      };
+      res.send(
+        rewritten
+      );
 
     } catch (error) {
 
       console.error(
-        'Direct stream error:',
+        'Play route error:',
         error.message
       );
 
-      return {
-        streams: [
-          {
-            name:
-              'Dailymotion',
-
-            title:
-              `${item.title} – פתיחה חיצונית`,
-
-            externalUrl:
-              item.pageUrl
-          }
-        ]
-      };
+      res.status(500).send(
+        'Could not load video'
+      );
     }
   }
 );
 
-const PORT =
-  Number(
-    process.env.PORT || 7000
-  );
+app.get(
+  '/dm-proxy',
+  async (req, res) => {
 
-serveHTTP(
-  builder.getInterface(),
-  {
-    port: PORT
+    try {
+      const url =
+        req.query.url;
+
+      if (!url) {
+        return res
+          .status(400)
+          .send(
+            'Missing URL'
+          );
+      }
+
+      const headers = {
+        ...DM_HEADERS
+      };
+
+      if (
+        req.headers.range
+      ) {
+        headers.Range =
+          req.headers.range;
+      }
+
+      const response =
+        await fetch(
+          url,
+          {
+            headers
+          }
+        );
+
+      if (!response.ok) {
+        return res
+          .status(
+            response.status
+          )
+          .send(
+            'Upstream error'
+          );
+      }
+
+      const contentType =
+        response.headers.get(
+          'content-type'
+        ) || '';
+
+      res.status(
+        response.status
+      );
+
+      res.set(
+        'Access-Control-Allow-Origin',
+        '*'
+      );
+
+      if (
+        contentType.includes(
+          'mpegurl'
+        ) ||
+        url.includes(
+          '.m3u8'
+        )
+      ) {
+        const text =
+          await response.text();
+
+        const rewritten =
+          rewritePlaylist(
+            text,
+            url
+          );
+
+        res.set(
+          'Content-Type',
+          'application/vnd.apple.mpegurl'
+        );
+
+        return res.send(
+          rewritten
+        );
+      }
+
+      const contentLength =
+        response.headers.get(
+          'content-length'
+        );
+
+      const contentRange =
+        response.headers.get(
+          'content-range'
+        );
+
+      const acceptRanges =
+        response.headers.get(
+          'accept-ranges'
+        );
+
+      if (contentType) {
+        res.set(
+          'Content-Type',
+          contentType
+        );
+      }
+
+      if (contentLength) {
+        res.set(
+          'Content-Length',
+          contentLength
+        );
+      }
+
+      if (contentRange) {
+        res.set(
+          'Content-Range',
+          contentRange
+        );
+      }
+
+      if (acceptRanges) {
+        res.set(
+          'Accept-Ranges',
+          acceptRanges
+        );
+      }
+
+      const buffer =
+        Buffer.from(
+          await response.arrayBuffer()
+        );
+
+      res.send(
+        buffer
+      );
+
+    } catch (error) {
+
+      console.error(
+        'Proxy error:',
+        error.message
+      );
+
+      res.status(500).send(
+        'Proxy error'
+      );
+    }
   }
 );
 
-console.log(
-  `Pijamot TV addon running on port ${PORT}`
+app.use(
+  '/',
+  getRouter(
+    builder.getInterface()
+  )
+);
+
+const PORT =
+  Number(
+    process.env.PORT ||
+    7000
+  );
+
+app.listen(
+  PORT,
+  () => {
+    console.log(
+      `Pijamot proxy addon running on port ${PORT}`
+    );
+  }
 );
