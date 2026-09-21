@@ -1,8 +1,7 @@
 services:
   - type: web
     name: pijamot-stremio-addon
-    runtime: node
+    runtime: docker
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    healthCheckPath: /manifest.json
     autoDeploy: true
