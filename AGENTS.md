@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guidance for AI agents working in this repo. `README.md` (Hebrew) is the user-facing doc and `ROADMAP.md` tracks open work.
+Guidance for AI agents working in this repo. `README.md` (Hebrew) is the user-facing doc. `ROADMAP.md` is the task list: **read it before you start**, since it holds the open work and its context (see [Roadmap](#roadmap)).
 
 ## What this project is
 
@@ -47,6 +47,15 @@ These drove the design. Re-check them before changing the approach.
 - **Variant and segment tokens are not IP-bound**, and stayed valid for at least 60 minutes. The longest episode is about 28 minutes.
 - yt-dlp's Dailymotion extractor already handles the gate (randomized headers, then Chrome and Firefox impersonation; upstream issue [#15526](https://github.com/yt-dlp/yt-dlp/issues/15526)). That is why our code never makes the gated request itself.
 - **Intermittent reduced ladder.** From a datacenter IP, yt-dlp sometimes gets a master with only 288p and 480p (the 720p60 and 1080p60 variants are missing). It happened in roughly 40 to 60 % of resolves from a Linode and about 25 % after the single retry in `hls.resolve_with_retry`. It did not happen from a residential IP. Plain `urllib` requests from the same datacenter IP always got the full ladder, so the trigger is in yt-dlp's own request path. Upstream reports describe similar soft degradation but no fix. Untried ideas: a `Referer` header, `priority: u=1, i`, `Sec-CH-UA*` headers, forced Chrome impersonation.
+
+## Roadmap
+
+`ROADMAP.md` is a task list, highest priority first, with a Done section.
+
+- Read it before starting work. Tasks there carry their own context, such as the current state, the steps and how to verify them, so use that instead of rediscovering it.
+- Update it when you finish a task (tick it and record what changed) or find new work. Write new tasks so a different agent could pick them up cold: the state, what to do, how to check it worked.
+- Some tasks need the owner (dashboard actions, approvals). Say so in the task and do not go past that step yourself.
+- The gaps listed under [Known gaps](#known-gaps) that are worth fixing have a task there.
 
 ## Commands
 
@@ -96,6 +105,8 @@ Say so if you could not run the live tests.
 - The free plan spins down when idle, so the first request after a pause is slow and the caches start empty.
 
 ## Known gaps
+
+Tracked in `ROADMAP.md`.
 
 - Playlist requests use `limit=100` with no pagination. A season with more than 100 videos would be truncated.
 - A season whose playlist fetch fails is missing from the map until the next refresh (it is logged). The old map is only kept when a refresh finds nothing at all.
