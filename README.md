@@ -7,8 +7,15 @@
 - תומך בעונות 1–9.
 - קורא אוטומטית את הפלייליסטים של Dailymotion.
 - מזהה עונה ופרק מתוך הכותרת של הסרטון, כך שחוסרים בפלייליסט לא מזיזים את המספור.
-- מחזיר מקור בשם `Dailymotion` רק אם נמצא הסרטון המתאים.
-- לא מעתיק או מאחסן וידאו; הוא רק מפנה לעמוד הציבורי המקורי ב-Dailymotion.
+- מחזיר מקור בשם `Dailymotion` שמנגן את הפרק ישירות בתוך Stremio.
+- לא מעתיק או מאחסן וידאו; הסרטונים נטענים ישירות מהשרתים של Dailymotion.
+- פרקים שחסרים בארכיון של Dailymotion (למשל עונה 1 פרקים 2 ו-8) לא יציגו מקור.
+
+## איך זה עובד
+
+Dailymotion חוסם בקשות שלא מגיעות מדפדפן ל-manifest הראשי של ה-HLS, והטוקן שלו קשור לכתובת ה-IP שביקשה אותו. לכן השרת משתמש ב-[yt-dlp](https://github.com/yt-dlp/yt-dlp) כדי לקבל את רשימת האיכויות של הפרק, בונה מהן playlist ראשי בכתובת `/master/<videoId>.m3u8`, ו-Stremio טוען ממנו את הווידאו ישירות מהשרתים של Dailymotion. שום וידאו לא עובר דרך השרת.
+
+לפעמים (בעיקר כשהשרת רץ בענן) Dailymotion מחזיר רק את האיכויות הנמוכות, 288p ו-480p. במקרה כזה השרת מנסה פעם אחת נוספת.
 
 ## הפלייליסטים
 
@@ -24,14 +31,15 @@
 
 ## הרצה במחשב
 
-צריך Node.js 18 ומעלה.
+צריך Python 3.12.
 
 ```bash
-npm install
-npm start
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+PUBLIC_BASE_URL=http://127.0.0.1:7000 .venv/bin/uvicorn app.main:app --port 7000
 ```
 
-אחרי ההרצה, ה-manifest נמצא כאן:
+`PUBLIC_BASE_URL` היא הכתובת שבה Stremio ניגש לשרת. אחרי ההרצה, ה-manifest נמצא כאן:
 
 ```text
 http://127.0.0.1:7000/manifest.json
@@ -39,17 +47,32 @@ http://127.0.0.1:7000/manifest.json
 
 ב-Stremio אפשר לפתוח את עמוד ה-Add-ons ולהוסיף את כתובת ה-manifest.
 
+לבדיקות:
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest
+```
+
+אפשר גם להריץ עם Docker:
+
+```bash
+docker build -t pijamot .
+docker run --rm -p 7000:80 -e PUBLIC_BASE_URL=http://127.0.0.1:7000 pijamot
+```
+
 ## שימוש בטלפון / טלוויזיה
 
-`127.0.0.1` עובד רק על המכשיר שמריץ את השרת. כדי להשתמש בתוסף מכל המכשירים, צריך לפרוס אותו לשרת ציבורי עם HTTPS, למשל Render/Railway/Fly.io. לאחר הפריסה מתקינים ב-Stremio את:
+`127.0.0.1` עובד רק על המכשיר שמריץ את השרת. כדי להשתמש בתוסף מכל המכשירים, צריך לפרוס אותו לשרת ציבורי עם HTTPS. הפרויקט כולל `Dockerfile` ו-`render.yaml` לפריסה ב-Render, והוא רץ גם בכל שרת שמריץ Docker.
+
+- ב-Render הכתובת הציבורית נלקחת אוטומטית מ-`RENDER_EXTERNAL_URL`.
+- בשרת אחר צריך להגדיר `PUBLIC_BASE_URL` לכתובת ה-HTTPS הציבורית.
+
+לאחר הפריסה מתקינים ב-Stremio את:
 
 ```text
 https://YOUR-DOMAIN/manifest.json
 ```
-
-## הערה לגבי ההפעלה
-
-Dailymotion הוא אתר וידאו ולא קובץ MP4 קבוע. לכן התוסף מחזיר `externalUrl`: לחיצה על המקור פותחת את הסרטון המקורי ב-Dailymotion. זו הדרך היציבה והנקייה שלא תלויה בחילוץ כתובות וידאו זמניות.
 
 ## מזהה הסדרה
 
